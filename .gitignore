@@ -1,0 +1,20 @@
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.pyc
+venv/
+
+# Logs / local data
+logs/
+*.log
+ziidi_positions.db
+ziidi_prices.db
+ziidi_alert_log.jsonl
+ziidi_breakouts.json
+ziidi_equity.csv
+ziidi_trades.csv
+
+nse_master/

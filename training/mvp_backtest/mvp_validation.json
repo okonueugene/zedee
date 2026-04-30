@@ -1,0 +1,68 @@
+{
+  "results": {
+    "55": {
+      "trades": 260,
+      "win_rate": 0.35384615384615387,
+      "avg_win": 0.26303067420023263,
+      "avg_loss": 0.06493666924127127,
+      "expectancy": 0.05111331382264551,
+      "avg_mfe": 0.16867261677697354,
+      "avg_mae": -0.04388693552772453,
+      "max_drawdown": 0.23728837725180726,
+      "mfe_capture_ratio": 1.5594153883793924
+    },
+    "60": {
+      "trades": 187,
+      "win_rate": 0.3315508021390374,
+      "avg_win": 0.2804999195338331,
+      "avg_loss": 0.06283801438838857,
+      "expectancy": 0.05099595300828383,
+      "avg_mfe": 0.16766890311120447,
+      "avg_mae": -0.04230925044767145,
+      "max_drawdown": 0.7174460948999231,
+      "mfe_capture_ratio": 1.672939431993509
+    },
+    "65": {
+      "trades": 118,
+      "win_rate": 0.3305084745762712,
+      "avg_win": 0.29275572503502534,
+      "avg_loss": 0.06625281309684018,
+      "expectancy": 0.05240255120097975,
+      "avg_mfe": 0.16909988817559307,
+      "avg_mae": -0.04766887458858736,
+      "max_drawdown": 1.0267747190063998,
+      "mfe_capture_ratio": 1.7312591285159706
+    },
+    "70": {
+      "trades": 60,
+      "win_rate": 0.36666666666666664,
+      "avg_win": 0.18875085954705692,
+      "avg_loss": 0.07250170342420476,
+      "expectancy": 0.02329090299859121,
+      "avg_mfe": 0.1387554749753471,
+      "avg_mae": -0.04669118636240503,
+      "max_drawdown": 2.8787881982974484,
+      "mfe_capture_ratio": 1.3603128783249279
+    },
+    "75": {
+      "trades": 29,
+      "win_rate": 0.4482758620689655,
+      "avg_win": 0.24279704408844924,
+      "avg_loss": 0.08093216417910454,
+      "expectancy": 0.0641878257339368,
+      "avg_mfe": 0.18394053902738514,
+      "avg_mae": -0.04562512121731914,
+      "max_drawdown": 0.9040562185428603,
+      "mfe_capture_ratio": 1.3199757126529976
+    }
+  },
+  "validation": {
+    "accept": false,
+    "lines": [
+      "Note: not all thresholds have trades in [20, 60] (or zero trades).",
+      "REJECT: expectancy <= 0.04 for some threshold with trades>=20",
+      "WARN: MFE capture ratio (avg_win/avg_mfe) did not rise with threshold",
+      "REJECT"
+    ]
+  }
+}

@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ziidi Alert Log Visualization</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: sans-serif; background-color: #f4f7f6; margin: 20px; }
+        .container { display: grid; grid-template-columns: repeat(auto-fit, minmax(450px, 1fr)); gap: 20px; }
+        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        h1 { color: #2c3e50; text-align: center; }
+        h2 { color: #34495e; font-size: 1.2em; margin-top: 0; }
+        .summary { display: flex; justify-content: space-around; margin-bottom: 20px; }
+        .stat { text-align: center; background: #fff; padding: 15px; border-radius: 8px; width: 22%; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        .stat b { display: block; font-size: 1.5em; color: #3498db; }
+    </style>
+</head>
+<body>
+
+    <h1>Ziidi Engine Dashboard</h1>
+
+    <div class="summary">
+        <div class="stat"><b>10,000.0</b>Current Equity</div>
+        <div class="stat"><b>69</b>Avg Rows/Fetch</div>
+        <div class="stat"><b>60+</b>Signals Processed</div>
+        <div class="stat"><b>3.0</b>Engine Version</div>
+    </div>
+
+    <div class="container">
+        <div class="card">
+            <h2>Event Frequency Distribution</h2>
+            <canvas id="eventChart"></canvas>
+        </div>
+
+        <div class="card">
+            <h2>ML Scores Trend (Rejected Signals)</h2>
+            <canvas id="mlScoreChart"></canvas>
+        </div>
+
+        <div class="card">
+            <h2>Data Fetching Reliability</h2>
+            <canvas id="fetchChart"></canvas>
+        </div>
+
+        <div class="card">
+            <h2>Equity Stability (KES)</h2>
+            <canvas id="equityChart"></canvas>
+        </div>
+    </div>
+
+    <script>
+        // Data derived from ziidi_alert_log.jsonl
+        const events = {
+            "FETCH_OK": 42,
+            "SIGNAL_REJECTED": 28,
+            "SYSTEM_START": 15,
+            "NOTIFY_FAIL": 12,
+            "FETCH_ERROR/NO_TABLE": 14,
+            "HEALTH_PING": 18
+        };
+
+        const mlData = [
+            { t: '2026-04-02', s: 17.6, sym: 'SCOM' }, { t: '2026-04-02', s: 24.6, sym: 'EQTY' },
+            { t: '2026-04-03', s: 15.7, sym: 'SCOM' }, { t: '2026-04-03', s: 21.0, sym: 'EQTY' },
+            { t: '2026-04-09', s: 40.7, sym: 'SCOM' }, { t: '2026-04-10', s: 11.7, sym: 'SCOM' },
+            { t: '2026-04-10', s: 49.8, sym: 'EQTY' }
+        ];
+
+        // 1. Event Distribution Chart
+        new Chart(document.getElementById('eventChart'), {
+            type: 'bar',
+            data: {
+                labels: Object.keys(events),
+                datasets: [{
+                    label: 'Count',
+                    data: Object.values(events),
+                    backgroundColor: ['#3498db', '#e74c3c', '#2ecc71', '#f1c40f', '#9b59b6', '#34495e']
+                }]
+            }
+        });
+
+        // 2. ML Scores Chart
+        new Chart(document.getElementById('mlScoreChart'), {
+            type: 'line',
+            data: {
+                labels: mlData.map(d => d.t),
+                datasets: [
+                    {
+                        label: 'SCOM ML Score',
+                        data: mlData.filter(d => d.sym === 'SCOM').map(d => d.s),
+                        borderColor: '#3498db',
+                        fill: false
+                    },
+                    {
+                        label: 'EQTY ML Score',
+                        data: mlData.filter(d => d.sym === 'EQTY').map(d => d.s),
+                        borderColor: '#e67e22',
+                        fill: false
+                    }
+                ]
+            }
+        });
+
+        // 3. Fetch Success vs Failure
+        new Chart(document.getElementById('fetchChart'), {
+            type: 'doughnut',
+            data: {
+                labels: ['Success (FETCH_OK)', 'Failure (ERR/NO_TABLE)'],
+                datasets: [{
+                    data: [42, 14],
+                    backgroundColor: ['#2ecc71', '#e74c3c']
+                }]
+            }
+        });
+
+        // 4. Equity Chart
+        new Chart(document.getElementById('equityChart'), {
+            type: 'line',
+            data: {
+                labels: ['Mar 27', 'Apr 01', 'Apr 03', 'Apr 05', 'Apr 09', 'Apr 10'],
+                datasets: [{
+                    label: 'Equity (KES)',
+                    data: [10000, 10000, 10000, 10000, 10000, 10000],
+                    borderColor: '#27ae60',
+                    tension: 0.1
+                }]
+            }
+        });
+    </script>
+</body>
+</html>

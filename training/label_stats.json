@@ -1,0 +1,12 @@
+{
+  "rows": 36143,
+  "symbols": 58,
+  "positive": 9802,
+  "negative": 26341,
+  "pos_rate": 0.2712,
+  "scale_pos_weight": 2.69,
+  "date_min": "2007-01-11",
+  "date_max": "2025-10-24",
+  "fee_threshold": 0.03874,
+  "hold_days": 5
+}

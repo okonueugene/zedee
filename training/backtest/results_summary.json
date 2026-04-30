@@ -1,0 +1,41 @@
+{
+  "test_start": "2023-01-01",
+  "parameters": {
+    "score_threshold": 70.0,
+    "vol_mult": 1.2,
+    "cooldown_bars": 2,
+    "min_net_target": 0.07748,
+    "drawdown_kill_pct": 0.1,
+    "expansion_trigger_threshold": 0.6,
+    "pullback_pct": 0.98,
+    "breakout_expiry_bars": 3,
+    "target_pct": 0.08,
+    "stop_pct": 0.05,
+    "breakeven_pct": 0.04,
+    "trailing_stop_pct": 0.06
+  },
+  "gate_pass_counts": {
+    "rows_scanned": 5830,
+    "pass_score": 116,
+    "pass_vol": 33,
+    "pass_expansion": 33,
+    "pass_pullback": 2,
+    "pass_gate8": 2,
+    "trades": 2
+  },
+  "trades": 2,
+  "win_rate": 0.0,
+  "avg_win": 0.0,
+  "avg_loss": 0.0637,
+  "expectancy": -0.0637,
+  "fee_floor": 0.03874,
+  "has_edge": false,
+  "avg_mae": -0.0478,
+  "avg_mfe": 0.1527,
+  "max_drawdown": -0.0502,
+  "paused_by_drawdown": false,
+  "drawdown_kill_equity": null,
+  "initial_equity": 10000.0,
+  "final_equity": 9498.25,
+  "total_return": -0.0502
+}

@@ -1,0 +1,77 @@
+{
+  "feature_cols": [
+    "rsi_14",
+    "ema_9",
+    "ema_21",
+    "trend_strength",
+    "bb_pct",
+    "atr_14_norm",
+    "compression_score",
+    "expansion_trigger",
+    "vol_spike",
+    "vol_stability",
+    "rel_volume_norm",
+    "chg_pct",
+    "high_30d_pct",
+    "gap_type"
+  ],
+  "label_col": "label_5d",
+  "hold_days": 5,
+  "round_trip_fee": 0.03874,
+  "decision_threshold": 0.5,
+  "best_iteration": 303,
+  "scale_pos_weight": 2.7429,
+  "split": {
+    "train_rows": 26268,
+    "val_rows": 4037,
+    "test_rows": 5838,
+    "train_end": "2020-12-31",
+    "val_start": "2021-01-01",
+    "val_end": "2022-12-31",
+    "test_start": "2023-01-01"
+  },
+  "val_metrics": {
+    "roc_auc": 0.5414,
+    "avg_prec": 0.2592,
+    "precision": 0.2686,
+    "recall": 0.2458
+  },
+  "val_expectancy": {
+    "trades": 808,
+    "win_rate": 0.2686,
+    "avg_win": 0.0949,
+    "avg_loss": 0.0878,
+    "expectancy": -0.0387,
+    "threshold": 0.5
+  },
+  "test_metrics": {
+    "roc_auc": 0.5714,
+    "avg_prec": 0.3773,
+    "precision": 0.3878,
+    "recall": 0.3219
+  },
+  "test_expectancy": {
+    "trades": 1578,
+    "win_rate": 0.3878,
+    "avg_win": 0.1495,
+    "avg_loss": 0.0835,
+    "expectancy": 0.0068,
+    "threshold": 0.5
+  },
+  "feature_importance": {
+    "chg_pct": 0.11155020445585251,
+    "ema_9": 0.1002824679017067,
+    "atr_14_norm": 0.07740142196416855,
+    "compression_score": 0.07188984006643295,
+    "high_30d_pct": 0.0718839019536972,
+    "trend_strength": 0.0716613307595253,
+    "vol_stability": 0.06683585047721863,
+    "rsi_14": 0.06596361100673676,
+    "ema_21": 0.06584182381629944,
+    "bb_pct": 0.06408768892288208,
+    "expansion_trigger": 0.06108666583895683,
+    "rel_volume_norm": 0.059806473553180695,
+    "vol_spike": 0.05916036665439606,
+    "gap_type": 0.052548304200172424
+  }
+}

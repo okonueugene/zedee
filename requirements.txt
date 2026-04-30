@@ -1,0 +1,27 @@
+# Ziidi Signal Engine v3.0 — dependencies
+#
+# Install:  pip install -r requirements.txt
+# Python:   3.11+  (uses X | Y union types and match syntax)
+
+# ── Data & scraping ────────────────────────────────────────────────────────────
+pandas==3.0.1              # price history, trade journal, analytics DataFrames
+requests==2.32.5           # NSE scraper + Telegram Bot API
+beautifulsoup4==4.14.3     # HTML parsing for fetch_nse_data() and fetch_active_events()
+lxml>=5.0.0                # robust pandas.read_html() backend (recommended)
+numpy>=1.26.0              # array ops used across training + inference
+
+# ── Scheduling & time ──────────────────────────────────────────────────────────
+schedule==1.2.2            # scan / calibration / health-ping job scheduler
+python-dateutil==2.8.2     # timezone-aware datetime parsing (EAT = Africa/Nairobi)
+python-dotenv>=1.0.0       # load local .env into os.environ (secrets/config)
+
+# ── ML training + optional live scoring ───────────────────────────────────────
+# Required to run: python training/05_run_pipeline.sh  (or each script individually)
+# Required for live ML mode too: core/ml_scorer.py unpickles an XGBoost model
+# and calls predict_proba() at runtime when the model file exists.
+xgboost>=2.1.0             # gradient boosted trees (training + live inference)
+scikit-learn>=1.4.0        # precision/recall/AUC metrics in train_model.py
+pyarrow>=15.0.0            # parquet I/O for labelled dataset
+
+# ── Standard library (no install needed) ──────────────────────────────────────
+# json, os, io, math, sqlite3, csv, datetime, time — all built into Python

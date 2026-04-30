@@ -1,0 +1,3 @@
+symbol,entry_date,exit_date,phase,reason,entry_price,exit_price,ml_prob,ml_score,vol_spike,expansion_trigger,gross_ret,net_ret,mae,mfe,result,pnl,equity_after
+KPLC,2025-06-24,2025-07-02,EXPANSION,BREAKEVEN,8.8,8.8,0.7445,74.5,3.626,1.0,0.0,-0.0387,0.0295,0.3068,LOSS,-154.77,9845.23
+SBIC,2025-05-13,2025-05-23,EXPANSION,STOP_LOSS,170.0,161.5,0.7085,70.8,4.216,1.0,-0.05,-0.0887,-0.125,-0.0015,LOSS,-346.97,9498.25

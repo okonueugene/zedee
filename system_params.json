@@ -1,0 +1,18 @@
+{
+  "min_net_target_pct": 0.06,
+  "compression_range_pct": 0.02,
+  "max_risk_pct": 0.02,
+  "max_total_risk_pct": 0.04,
+  "trailing_stop_pct": 0.07,
+  "stop_floor_pct": 0.04,
+  "cooldown_hours": 2,
+  "min_trades_to_calibrate": 20,
+  "scan_start_h": 10,
+  "scan_start_m": 0,
+  "fetch_recovery_minutes": 60,
+  "use_mvp_engine": true,
+  "score_threshold": 55,
+  "max_hold_days": 10,
+  "vol_mult_morning": 0.8,
+  "pullback_pct": 0.997
+}
