@@ -11,6 +11,7 @@ from __future__ import annotations
 import sqlite3
 
 from config.params import ENRICHMENT_MIN_BARS, PRICE_DB
+from core.data import get_deduped_price_volume_rows
 
 
 def get_enriched_metrics(symbol: str, conn: sqlite3.Connection) -> dict | None:
@@ -34,16 +35,7 @@ def get_enriched_metrics(symbol: str, conn: sqlite3.Connection) -> dict | None:
         - fewer than ENRICHMENT_MIN_BARS rows exist
         - all price or volume values are null
     """
-    rows = conn.execute(
-        """
-        SELECT price, volume
-        FROM prices
-        WHERE symbol = ?
-        ORDER BY timestamp DESC
-        LIMIT 30
-        """,
-        (symbol,),
-    ).fetchall()
+    rows = get_deduped_price_volume_rows(symbol, conn, limit=30)
 
     if len(rows) < ENRICHMENT_MIN_BARS:
         return None

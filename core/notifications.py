@@ -105,7 +105,7 @@ def test_telegram() -> bool:
         "You will receive CRITICAL and WARNING alerts here."
     )
     ok = _send_telegram(msg)
-    status = "OK — message delivered" if ok else "FAILED — check TELEGRAM_TOKEN and TELEGRAM_CHAT_ID"
+    status = "OK — message delivered" if ok else "FAILED — check TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID"
     print(f"Telegram test: {status}")
     return ok
 
@@ -117,8 +117,8 @@ def _get_credentials() -> tuple[str, str]:
     Return (token, chat_id).  Env vars beat params.py so CI/CD can override
     without touching source files.
     """
-    # env vars — highest priority
-    token   = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    # env vars — highest priority (TELEGRAM_TOKEN accepted as bot-token alias)
+    token   = os.environ.get("TELEGRAM_BOT_TOKEN") or os.environ.get("TELEGRAM_TOKEN") or ""
     chat_id = os.environ.get("TELEGRAM_CHAT_ID", "")
 
     # fall back to params.py constants if env vars absent
@@ -315,7 +315,7 @@ def dispatch_notification(event_type: str, data: dict) -> None:
         reason = "no credentials set" if not token or not chat_id else "network / API error"
         fail_msg = (
             f"[NOTIFY FAIL] {event_type} ({severity}) not delivered to Telegram — {reason}  "
-            "Set TELEGRAM_TOKEN + TELEGRAM_CHAT_ID in config/params.py"
+            "Set TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID in .env (see .env.example)"
         )
         print(fail_msg)
         _logger.warning(fail_msg)

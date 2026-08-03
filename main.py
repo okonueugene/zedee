@@ -53,6 +53,7 @@ from core.data import (
     delete_position,
     fetch_nse_data,
     get_history,
+    get_last_fetch_report,
     init_dbs,
     load_equity,
     load_positions,
@@ -72,7 +73,7 @@ from core.risk import equity_drawdown_ok, portfolio_risk_ok, trailing_stop_hit
 from core.signals import detect_phase, entry_time_ok, fuse_score, validate_entry, vol_ok
 from core.features import enrich_universe
 from core.universe import build_universe
-from core.activation import run_activation_check
+from core.activation import compute_volume_ratio, run_activation_check
 from learning.analytics import core_metrics
 from learning.calibrator import run as run_calibrator
 from learning.journal import (
@@ -442,7 +443,7 @@ def scan_mvp_entries(df: pd.DataFrame, now: datetime, current_equity: float) -> 
 
         live_row = sym_rows.iloc[0].to_dict()
         metrics = enriched[sym]
-        if run_activation_check(sym, live_row, metrics, log_event):
+        if run_activation_check(sym, live_row, metrics, log_event, now):
             active_symbols.append(sym)
 
     log_event(
@@ -486,8 +487,12 @@ def scan_mvp_entries(df: pd.DataFrame, now: datetime, current_equity: float) -> 
             except Exception:
                 prev_score = None
             high_5d = _mvp_high_5d(history)
+            sym_metrics = enriched.get(sym, {})
+            avg_vol = float(sym_metrics.get("avg_volume_20d", 0) or 0)
+            today_vol = float(stock["volume"].iloc[0] if "volume" in stock.columns else 0)
+            vol_ratio = compute_volume_ratio(today_vol, avg_vol, now) if avg_vol else None
             row = {"ml_score": ml_score, "prev_score": prev_score, "close": price, "high_5d": high_5d}
-            mvp_rej = mvp_entry_rejection(row, score_threshold)
+            mvp_rej = mvp_entry_rejection(row, score_threshold, volume_ratio=vol_ratio)
             if mvp_rej is not None:
                 log_rejection(sym, "MVP", **mvp_rej)
                 continue
@@ -883,20 +888,25 @@ def run_scan() -> None:
         consecutive_fails += 1
         global _daily_fetch_fail
         _daily_fetch_fail += 1
+        fetch_report = get_last_fetch_report()
         log_event("SCAN_ABORT", {
             "reason":            "NO_DATA",
             "consecutive_fails": consecutive_fails,
+            "sources_tried":     fetch_report.get("sources_tried", []),
+            "source_results":    fetch_report.get("source_results", []),
+            "fetch_error":       fetch_report.get("error"),
         })
         if consecutive_fails >= 3:
             pause_entries = True
             backoff_min = int(params.get("fetch_recovery_minutes", 60))
             fetch_pause_until = now + timedelta(minutes=backoff_min)
-            server = socket.gethostname()
             log_event("SYSTEM_PAUSED", {
                 "reason": f"{consecutive_fails} consecutive fetch failures",
                 "paused_until": fetch_pause_until.isoformat(),
                 "backoff_minutes": backoff_min,
-                "server": server
+                "hostname": socket.gethostname(),
+                "sources_tried": fetch_report.get("sources_tried", []),
+                "source_results": fetch_report.get("source_results", []),
             })
         return
 
@@ -1045,7 +1055,7 @@ def run_calibration() -> None:
 
     if should_pause and not pause_entries:
         pause_entries = True
-        log_event("SYSTEM_PAUSED", {"reason": reason, "server": server})
+        log_event("SYSTEM_PAUSED", {"reason": reason, "hostname": socket.gethostname()})
 
     if new_params != params:
         log_event("PARAM_UPDATE", {"old": params, "new": new_params})

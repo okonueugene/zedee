@@ -29,17 +29,21 @@ def trading_days_since_entry(entry_date: date, as_of: date) -> int:
     return c
 
 
-def mvp_entry_rejection(row: Any, threshold: float) -> dict[str, Any] | None:
+def mvp_entry_rejection(
+    row: Any,
+    threshold: float,
+    volume_ratio: float | None = None,
+) -> dict[str, Any] | None:
     """
     Module 1 — entry (frozen). Returns None if allowed, else kwargs for SIGNAL_REJECTED.
 
-    Score gate is strict ``>`` so a day capped at the threshold does not enter
-    (calibration: thin sessions stay flat; strong days push through).
+    Score gate allows ``>=`` at the boundary when volume_ratio >= 1.0 so exact-threshold
+    signals on normal-volume days can enter; thin-day caps at the threshold stay blocked.
     """
     ml_score = float(row["ml_score"])
     current_score = ml_score
     prev_score = row.get("prev_score") if isinstance(row, dict) else None
-    if ml_score <= threshold:
+    if ml_score < threshold:
         return {
             "reason": "SCORE_BELOW_THRESHOLD",
             "ml_score": round(ml_score, 2),
@@ -47,6 +51,15 @@ def mvp_entry_rejection(row: Any, threshold: float) -> dict[str, Any] | None:
             "delta_to_threshold": round(threshold - ml_score, 1),
             "score_velocity": round(current_score - prev_score, 1) if prev_score else None,
         }
+    if ml_score == threshold:
+        vr = volume_ratio if volume_ratio is not None else 0.0
+        if vr < 1.0:
+            return {
+                "reason": "SCORE_BOUNDARY_THIN_VOLUME",
+                "ml_score": round(ml_score, 2),
+                "threshold": threshold,
+                "volume_ratio": round(vr, 2),
+            }
     close = float(row["close"])
     high_5d = float(row["high_5d"])
     if close > high_5d * HIGH_5D_PULLBACK:
@@ -60,9 +73,13 @@ def mvp_entry_rejection(row: Any, threshold: float) -> dict[str, Any] | None:
     return None
 
 
-def should_enter(row: Any, threshold: float) -> bool:
+def should_enter(
+    row: Any,
+    threshold: float,
+    volume_ratio: float | None = None,
+) -> bool:
     """Module 1 — entry (frozen); True iff ``mvp_entry_rejection`` is None."""
-    return mvp_entry_rejection(row, threshold) is None
+    return mvp_entry_rejection(row, threshold, volume_ratio=volume_ratio) is None
 
 
 def new_position(entry_price: float) -> dict[str, Any]:

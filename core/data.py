@@ -3,27 +3,34 @@ Market Data Layer — fetch, persist, and retrieve NSE price data and positions.
 All I/O with the two SQLite databases and the equity CSV lives here.
 """
 
-import io
 import json
+import logging
 import os
 import sqlite3
 from datetime import datetime
 from uuid import uuid4
 
 import pandas as pd
-import requests
-from bs4 import BeautifulSoup
 from dateutil import tz
 
 from config.params import DB_FILE, EQUITY_FILE, LOG_FILE, PRICE_DB
 
 EAT = tz.gettz('Africa/Nairobi')
+_logger = logging.getLogger(__name__)
+
+_last_fetch_report: dict = {}
+
+
+def get_last_fetch_report() -> dict:
+    """Diagnostics from the most recent fetch_nse_data() call."""
+    return dict(_last_fetch_report)
 
 
 def _log(event_type: str, data: dict) -> None:
     entry = {"timestamp": datetime.now(EAT).isoformat(), "event": event_type, **data}
     with open(LOG_FILE, "a", encoding="utf-8") as f:
         f.write(json.dumps(entry, default=str) + "\n")
+    _logger.info("%s | %s", event_type, json.dumps(data, default=str))
 
 
 # ── Schema setup ───────────────────────────────────────────────────────────────
@@ -149,248 +156,270 @@ def update_highest_price(sym: str, new_highest: float) -> None:
 
 # ── Price history ──────────────────────────────────────────────────────────────
 
+_HISTORY_OVERFETCH = 8
+_HISTORY_MIN_RAW = 120
+
+
+def _quote_key(price, volume) -> tuple[float, int]:
+    p = float(price)
+    try:
+        v = int(volume)
+    except (TypeError, ValueError):
+        v = 0
+    if not (p == p):  # NaN
+        p = 0.0
+    return (p, v)
+
+
+def _dedupe_price_bars(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Collapse consecutive rows with identical (price, volume).
+
+    Expects DESC order (newest first, as stored/returned by get_history).
+    """
+    if df.empty:
+        return df
+
+    keep_idx: list = []
+    prev_key = None
+    for idx, row in df.iterrows():
+        key = _quote_key(row["price"], row["volume"])
+        if key != prev_key:
+            keep_idx.append(idx)
+            prev_key = key
+    return df.loc[keep_idx].reset_index(drop=True)
+
+
+def _load_raw_history(conn: sqlite3.Connection, sym: str, limit: int) -> pd.DataFrame:
+    return pd.read_sql(
+        "SELECT * FROM prices WHERE symbol = ? ORDER BY timestamp DESC LIMIT ?",
+        conn,
+        params=(sym, limit),
+    )
+
+
+def _latest_quotes(conn: sqlite3.Connection, symbols: list[str]) -> dict[str, tuple | None]:
+    latest: dict[str, tuple | None] = {}
+    for sym in symbols:
+        row = conn.execute(
+            "SELECT price, volume FROM prices WHERE symbol = ? ORDER BY timestamp DESC LIMIT 1",
+            (sym,),
+        ).fetchone()
+        latest[sym] = row
+    return latest
+
+
 def save_price_data(df: pd.DataFrame) -> None:
+    """
+    Append live quotes only when price or volume changed vs the latest stored bar.
+
+    Skips duplicate 15-minute scans (including overnight/weekend stale EOD prints)
+    that were polluting ML feature history.
+    """
     if df is None or df.empty:
         return
-    conn       = sqlite3.connect(PRICE_DB, timeout=30)
-    df         = df.copy()
-    df['timestamp'] = datetime.now(EAT).isoformat()
-    df.to_sql('prices', conn, if_exists='append', index=False)
-    conn.commit()
-    conn.close()
+
+    conn = sqlite3.connect(PRICE_DB, timeout=30)
+    try:
+        symbols = df["symbol"].astype(str).tolist()
+        latest = _latest_quotes(conn, symbols)
+        now_ts = datetime.now(EAT).isoformat()
+
+        rows: list[dict] = []
+        skipped = 0
+        for _, row in df.iterrows():
+            sym = str(row["symbol"])
+            price = float(row["price"])
+            volume = int(row["volume"])
+            prev = latest.get(sym)
+            if prev is not None and _quote_key(prev[0], prev[1]) == _quote_key(price, volume):
+                skipped += 1
+                continue
+
+            rows.append({
+                "timestamp": now_ts,
+                "symbol": sym,
+                "price": price,
+                "chg_pct": float(row["chg_pct"]) if pd.notna(row["chg_pct"]) else 0.0,
+                "volume": volume,
+            })
+            latest[sym] = (price, volume)
+
+        if rows:
+            pd.DataFrame(rows).to_sql("prices", conn, if_exists="append", index=False)
+
+        if skipped:
+            _log("PRICE_SAVE_SKIP", {
+                "skipped": skipped,
+                "saved": len(rows),
+                "symbols": len(symbols),
+            })
+    finally:
+        conn.commit()
+        conn.close()
 
 
 def get_history(sym: str, n: int = 30) -> pd.DataFrame:
+    """
+    Return the last ``n`` distinct quote bars for ``sym`` (DESC order).
+
+    Over-fetches raw rows then collapses consecutive duplicate (price, volume)
+    prints so ML/scoring see session transitions, not repeated EOD snapshots.
+    """
+    raw_limit = max(n * _HISTORY_OVERFETCH, _HISTORY_MIN_RAW)
     conn = sqlite3.connect(PRICE_DB, timeout=30)
-    df   = pd.read_sql(
-        "SELECT * FROM prices WHERE symbol = ? ORDER BY timestamp DESC LIMIT ?",
-        conn, params=(sym, n),
-    )
-    conn.close()
-    return df
+    try:
+        df = _load_raw_history(conn, sym, raw_limit)
+    finally:
+        conn.close()
+    return _dedupe_price_bars(df).head(n).reset_index(drop=True)
+
+
+def get_deduped_price_volume_rows(
+    symbol: str,
+    conn: sqlite3.Connection,
+    limit: int = 30,
+) -> list[tuple[float, float | int | None]]:
+    """Price/volume pairs for enrichment metrics (DESC, deduped)."""
+    raw_limit = max(limit * _HISTORY_OVERFETCH, _HISTORY_MIN_RAW)
+    df = _load_raw_history(conn, symbol, raw_limit)
+    df = _dedupe_price_bars(df).head(limit)
+    if df.empty:
+        return []
+    return list(zip(df["price"], df["volume"]))
+
+
+def compact_price_history(
+    symbols: list[str] | None = None,
+    dry_run: bool = False,
+) -> dict:
+    """
+    Remove consecutive duplicate (price, volume) bars already stored in PRICE_DB.
+
+    Walks each symbol chronologically and keeps the first row of every unchanged run.
+    """
+    conn = sqlite3.connect(PRICE_DB, timeout=30)
+    try:
+        if symbols is None:
+            symbols = [
+                row[0]
+                for row in conn.execute(
+                    "SELECT DISTINCT symbol FROM prices ORDER BY symbol"
+                ).fetchall()
+            ]
+
+        summary = {"symbols": len(symbols), "before": 0, "after": 0, "removed": 0}
+        for sym in symbols:
+            raw = pd.read_sql(
+                "SELECT timestamp, symbol, price, chg_pct, volume "
+                "FROM prices WHERE symbol = ? ORDER BY timestamp ASC",
+                conn,
+                params=(sym,),
+            )
+            if raw.empty:
+                continue
+
+            summary["before"] += len(raw)
+            keep_rows: list[dict] = []
+            prev_key = None
+            for _, row in raw.iterrows():
+                key = _quote_key(row["price"], row["volume"])
+                if key == prev_key:
+                    continue
+                keep_rows.append(row.to_dict())
+                prev_key = key
+
+            summary["after"] += len(keep_rows)
+            if dry_run or len(keep_rows) == len(raw):
+                continue
+
+            conn.execute("DELETE FROM prices WHERE symbol = ?", (sym,))
+            pd.DataFrame(keep_rows).to_sql("prices", conn, if_exists="append", index=False)
+
+        summary["removed"] = summary["before"] - summary["after"]
+        if not dry_run and summary["removed"] > 0:
+            conn.commit()
+            _log("PRICE_HISTORY_COMPACTED", summary)
+        return summary
+    finally:
+        conn.close()
 
 
 # ── Live market feed ───────────────────────────────────────────────────────────
 
 def fetch_nse_data() -> pd.DataFrame | None:
     """
-    Scrape afx.kwayisi.org/nse — robust 2026 version.
+    Fetch NSE live prices from the configured feed chain.
 
-    The page has several tables (NASI summary, gainers/losers, main listings).
-    We identify the main stock table by requiring a 'ticker' column after
-    normalising all headers to lowercase — the NASI and summary tables never
-    contain a column called 'ticker', so false matches are impossible.
+    Tries each source in ``NSE_FEED_PRIORITY`` until one returns data.
+    Default: MyStocks pricelist (Synergy / NSE licensed) → kwayisi fallback.
     """
-    url = "https://afx.kwayisi.org/nse/"
-    try:
-        r = requests.get(
-            url,
-            headers={
-                "User-Agent": (
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/134.0 Safari/537.36"
-                )
-            },
-            timeout=20,
-        )
-        r.raise_for_status()
-        status_code = int(r.status_code)
-        resp_bytes  = int(len(r.content)) if r.content is not None else 0
+    global _last_fetch_report
+    from config.params import NSE_FEED_PRIORITY
+    from core.nse_feeds import fetch_from_source
 
-        soup   = BeautifulSoup(r.text, 'html.parser')
-        tables = soup.find_all('table')
-        table_found = False
-        last_reason = "no table with ticker/price/volume columns"
-
-        for table in tables:
-            # io.StringIO prevents pandas 2.x from trying to open the HTML as a file path
-            try:
-                df = pd.read_html(io.StringIO(str(table)))[0]
-            except Exception:
-                continue
-
-            # Normalise to lowercase stripped strings before any matching
-            df.columns = [str(c).strip().lower() for c in df.columns]
-
-            # The main stock table is uniquely identified by having 'ticker',
-            # 'price', AND 'volume' — none of the summary tables have all three.
-            if not ('ticker' in df.columns and 'price' in df.columns and 'volume' in df.columns):
-                continue
-            table_found = True
-
-            col_map = {}
-            for c in df.columns:
-                if c == 'ticker':
-                    col_map[c] = 'symbol'
-                elif 'volume' in c:
-                    col_map[c] = 'volume'
-                elif 'price' in c:
-                    col_map[c] = 'price'
-                elif 'change' in c:
-                    col_map[c] = 'change'
-
-            df = df.rename(columns=col_map)
-
-            if 'change' in df.columns:
-                df['prev_price'] = df['price'] - df['change']
-                df['chg_pct']    = (df['change'] / df['prev_price'] * 100).round(2)
-
-            df['symbol'] = df['symbol'].astype(str).str.upper().str.strip()
-            result       = df[['symbol', 'price', 'chg_pct', 'volume']].copy()
-            result       = result.dropna(subset=['symbol', 'price'])
-
-            _log("FETCH_OK", {
-                "rows":           len(result),
-                "sample_symbols": result['symbol'].head(3).tolist(),
-                "status":         status_code,
-                "resp_bytes":     resp_bytes,
-                "table_found":    True,
+    last_error: str | None = None
+    source_results: list[dict] = []
+    for source in NSE_FEED_PRIORITY:
+        try:
+            result = fetch_from_source(source)
+        except Exception as exc:
+            last_error = f"{source}: {exc}"
+            source_results.append({
+                "source": source,
+                "status": "error",
+                "error": str(exc),
             })
-            # Debug visibility for pipeline diagnosis
+            _log("FETCH_ERROR", {
+                "source": source,
+                "error": str(exc),
+                "reason": "provider exception",
+            })
+            continue
+
+        if result is not None and not result.empty:
+            source_results.append({
+                "source": source,
+                "status": "ok",
+                "rows": len(result),
+            })
+            _last_fetch_report = {
+                "success_source": source,
+                "sources_tried": list(NSE_FEED_PRIORITY),
+                "source_results": source_results,
+            }
+            _log("FETCH_OK", {
+                "source": source,
+                "rows": len(result),
+                "sample_symbols": result["symbol"].head(3).tolist(),
+            })
             try:
-                print("FETCH_DEBUG strict:", len(result))
+                print(f"FETCH_DEBUG {source}:", len(result))
                 print(result.head(5).to_string(index=False))
             except Exception:
                 pass
             return result
 
-        # ── Fallback parsing ─────────────────────────────────────────────
-        # afx.kwayisi table layouts sometimes change slightly (e.g. missing
-        # `volume`, `ticker` renamed to `symbol/code`, or `change` column
-        # renamed). If strict parsing fails, try a looser match that still
-        # guarantees output columns required by the live scan:
-        #   symbol, price, chg_pct, volume
-        fallback_reason: str = ""
-        fallback_result: pd.DataFrame | None = None
-
-        for table in tables:
-            try:
-                df = pd.read_html(io.StringIO(str(table)))[0]
-            except Exception:
-                continue
-
-            df.columns = [str(c).strip().lower() for c in df.columns]
-            cols = set(df.columns)
-
-            sym_candidates = [
-                c for c in df.columns
-                if c in ("ticker", "symbol", "code") or "ticker" in c or "symbol" in c or "code" in c
-            ]
-            price_candidates = [
-                c for c in df.columns
-                if "price" in c or c in ("last", "ltp") or "last" in c or "ltp" in c
-            ]
-            chg_candidates = [
-                c for c in df.columns
-                if ("chg" in c) or ("change" in c) or ("pct" in c) or ("%chg" in c)
-            ]
-            vol_candidates = [
-                c for c in df.columns
-                if "volume" in c or "vol" in c or "qty" in c
-            ]
-
-            if not sym_candidates or not price_candidates:
-                continue
-
-            sym_col = sym_candidates[0]
-            price_col = price_candidates[0]
-            chg_col = chg_candidates[0] if chg_candidates else None
-            vol_col = vol_candidates[0] if vol_candidates else None
-
-            sym = df[sym_col].astype(str).str.upper().str.strip()
-            price = pd.to_numeric(df[price_col], errors="coerce")
-
-            if sym.empty or price.empty:
-                continue
-
-            out = pd.DataFrame({
-                "symbol": sym,
-                "price": price,
-            })
-
-            # chg_pct: if we can interpret a change column, compute; otherwise 0.
-            if chg_col is not None:
-                chg_raw = pd.to_numeric(df[chg_col], errors="coerce")
-                chg_name = str(chg_col).lower()
-
-                # If it's already a percent column (name suggests %/pct), use it.
-                if "%" in chg_name or "pct" in chg_name or "percent" in chg_name or "chgpct" in chg_name:
-                    out["chg_pct"] = chg_raw.round(2)
-                else:
-                    # Assume absolute change; derive previous price as price - change.
-                    prev_price = price - chg_raw
-                    out["chg_pct"] = (chg_raw / prev_price.replace(0, float("nan")) * 100).round(2)
-            else:
-                out["chg_pct"] = 0.0
-
-            if vol_col is not None:
-                out["volume"] = pd.to_numeric(df[vol_col], errors="coerce").fillna(0).astype(int)
-            else:
-                out["volume"] = 0
-
-            out = out.dropna(subset=["symbol", "price"])
-            # Allow smaller tables; later filters will still check needed symbols.
-            if len(out) <= 5:
-                continue
-
-            fallback_result = out[["symbol", "price", "chg_pct", "volume"]].copy()
-            fallback_reason = {
-                "sym_col": sym_col,
-                "price_col": price_col,
-                "chg_col": chg_col,
-                "vol_col": vol_col,
-                "parsed_rows": int(len(fallback_result)),
-            }
-            break
-
-        if fallback_result is not None:
-            _log("FETCH_OK", {
-                "rows":           len(fallback_result),
-                "sample_symbols": fallback_result["symbol"].head(3).tolist(),
-                "status":         status_code,
-                "resp_bytes":     resp_bytes,
-                "table_found":    True,
-                "fallback_used":  True,
-                "fallback_reason": fallback_reason,
-            })
-            # Debug visibility for pipeline diagnosis
-            try:
-                print("FETCH_DEBUG fallback:", len(fallback_result))
-                print(fallback_result.head(5).to_string(index=False))
-            except Exception:
-                pass
-            return fallback_result
-
-        _log("FETCH_NO_TABLE", {
-            "tables_scanned": len(tables),
-            "status":         status_code,
-            "resp_bytes":     resp_bytes,
-            "table_found":    table_found,
-            "reason":         last_reason,
-            "fallback_reason": fallback_reason if fallback_result is None else None,
+        source_results.append({
+            "source": source,
+            "status": "miss",
+            "reason": "empty or unparseable response",
         })
-        return None
-
-    except Exception as e:
-        status_code = None
-        resp_bytes  = None
-        try:
-            status_code = int(getattr(locals().get("r", None), "status_code", None))
-        except Exception:
-            status_code = None
-        try:
-            _r = locals().get("r", None)
-            resp_bytes = int(len(getattr(_r, "content", b"") or b""))
-        except Exception:
-            resp_bytes = None
-
-        _log("FETCH_ERROR", {
-            "error":      str(e),
-            "url":        url,
-            "status":     status_code,
-            "resp_bytes": resp_bytes,
-            "table_found": False,
-            "reason":     "request/parse failure",
+        _log("FETCH_SOURCE_MISS", {
+            "source": source,
+            "reason": "empty or unparseable response",
         })
-        return None
+
+    _last_fetch_report = {
+        "success_source": None,
+        "sources_tried": list(NSE_FEED_PRIORITY),
+        "source_results": source_results,
+        "error": last_error or "all sources failed",
+    }
+    _log("FETCH_ERROR", {
+        "error": last_error or "all sources failed",
+        "sources_tried": list(NSE_FEED_PRIORITY),
+        "source_results": source_results,
+        "reason": "all feeds exhausted",
+    })
+    return None

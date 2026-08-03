@@ -8,14 +8,19 @@ import json
 import os
 
 # Load local .env (kept out of git) for secrets/config.
-# If python-dotenv isn't installed, proceed without it.from dotenv import load_dotenv
-from dotenv import load_dotenv
-load_dotenv()
+# If python-dotenv isn't installed, proceed without it.
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()
+except ImportError:
+    pass
 
 
 # ── Telegram notifications ────────────────────────────────────────────────────
-# Paste your credentials here, or set TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID
-# as environment variables (env vars take priority over these values).
+# Set in .env (see .env.example). Names match core/notifications.py:
+#   TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
+# TELEGRAM_TOKEN is accepted as an alias for the bot token.
 #
 # How to get them:
 #   1. Open Telegram → search @BotFather → /newbot → copy the token
@@ -24,16 +29,30 @@ load_dotenv()
 #      and copy the "id" value inside "chat"
 #   3. Run:  python -c "from core.notifications import test_telegram; test_telegram()"
 #
-TELEGRAM_TOKEN   = os.getenv("TELEGRAM_TOKEN") # set via .env (preferred) or env var TELEGRAM_BOT_TOKEN
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID") # set via .env (preferred) or env var TELEGRAM_CHAT_ID
-NOTIFY_INFO      = True  # set True to also send INFO-level events to Telegram
+TELEGRAM_TOKEN = (
+    os.getenv("TELEGRAM_BOT_TOKEN")
+    or os.getenv("TELEGRAM_TOKEN")
+    or ""
+)
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID") or ""
+NOTIFY_INFO = os.getenv("NOTIFY_INFO", "1").lower() in ("1", "true", "yes")
 
 # ── Market & execution constants ──────────────────────────────────────────────
 INITIAL_CAPITAL    = 10_000.0
 PAPER_TRADE        = True
-WATCHLIST          = ['SCOM', 'EQTY', 'KCB', 'NCBA', 'EABL', 'COOP', 'KQ' , 'ABSA', 'STANCHART', 'IMH', 'DTBK', 'KPLC', 'KEGN']
+WATCHLIST          = ['SCOM', 'EQTY', 'KCB', 'NCBA', 'EABL', 'COOP', 'KQ' , 'ABSA', 'STANCHART', 'IMH', 'KPLC', 'KEGN']
 SCAN_INTERVAL_MIN  = 15
 SLIPPAGE_BUFFER    = 1.005   # 0.5 % buffer for limit-order realism
+
+# ── NSE live data sources (fallback chain) ───────────────────────────────────
+# Prioritized sources (production-ready):
+# 1. mystocks_pricelist (primary) — clean table, good volume; occasional outages
+# 2. kwayisi (legacy) — stable long history; HTML structure may vary
+# 3. africanfinancials — alternative coverage; may lag a few minutes
+NSE_FEED_PRIORITY = ["mystocks_pricelist", "kwayisi", "africanfinancials"]
+KWAYISI_NSE_URL = "https://afx.kwayisi.org/nse/"
+MYSTOCKS_PRICELIST_URL = "https://live.mystocks.co.ke/m/pricelist"
+AFRICANFINANCIALS_URL = "https://africanfinancials.com/nairobi-securities-exchange-kenya-share-prices/"
 
 # ── Watchlist Expansion (added 2026-04-24) ──────────────────────────────────
 #
@@ -45,7 +64,8 @@ WATCHLIST_EXTENDED = [
     # Tier 2 — validated additions (must pass ADVT filter live)
     "ABSA", "IMH",
     # Tier 3 — conditional (must pass ADVT filter live; drop if they fail)
-    "DTBK", "KPLC", "KEGN",
+    # DTBK removed until sufficient price history accumulates
+    "KPLC", "KEGN",
     # Exclusions (do NOT add): BAT, JUB, BRITAM
 ]
 
@@ -55,11 +75,11 @@ MIN_ADVT_KES = 3_000_000
 
 # Activation filter — volume spike threshold (ratio vs 20-session average)
 # Tuned on 2026-04-24 offline validation to keep activated symbols ~3–6/session.
-ACTIVATION_VOLUME_SPIKE = 2.0       # 200% of average = activated
+ACTIVATION_VOLUME_SPIKE = 1.5       # 150% of projected daily volume = activated
 
 # Activation filter — minimum participation (avoids zero-volume drift days)
-# Tuned on 2026-04-24 offline validation to keep activated symbols ~3–6/session.
-ACTIVATION_MIN_PARTICIPATION = 1.5  # must have at least 150% of avg volume
+# Retuned with intraday volume projection; target ~3–6 activated symbols/session.
+ACTIVATION_MIN_PARTICIPATION = 0.85  # projected volume >= 85% of avg
 
 # Activation filter — proximity to 5-day high (structure check)
 ACTIVATION_NEAR_HIGH_5D = 0.97      # within 3% of 5-day high = activated
